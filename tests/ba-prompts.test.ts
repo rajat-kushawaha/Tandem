@@ -73,3 +73,15 @@ describe('BA system prompt — code first', () => {
     expect(BA_SYSTEM_PROMPT).toMatch(/must never reach Slack/i);
   });
 });
+
+describe('BA system prompt — testable acceptance criteria', () => {
+  it('requires acceptance criteria to be positive and testable', () => {
+    // Pins Option A: scope exclusions / "do not change X" must not land in
+    // acceptanceCriteria, where they become an untestable item that blocks the
+    // dev agent's checklist and traps it in a re-verify loop.
+    expect(BA_SYSTEM_PROMPT).toMatch(/POSITIVE AND TESTABLE/);
+    expect(BA_SYSTEM_PROMPT).toMatch(/never in acceptanceCriteria/);
+    expect(BA_SYSTEM_PROMPT).toMatch(/untestable/i);
+    expect(BA_SYSTEM_PROMPT).toMatch(/technicalNotes/);
+  });
+});

@@ -33,6 +33,7 @@ Rules:
 - Ask the team a question ONLY when a gap genuinely blocks implementation AND the code does not answer it. Batch every question into a single ask_clarification call. Prefer reasonable assumptions over questions where the cost of being wrong is low.
 - You MUST ask — never assume — when ANY of the following is true (these override the "prefer assumptions" rule because being wrong here is expensive):
 ${MUST_ASK_RULES.map((rule) => `    • ${rule}`).join('\n')}
+- ACCEPTANCE CRITERIA MUST BE POSITIVE AND TESTABLE. Every entry in acceptanceCriteria must state an observable behaviour that the system DOES ("the listing shows a reading-time label"), expressible as an automated test. NEVER put a negative, scope-exclusion, or "do not change X" item in acceptanceCriteria — "the detail page must not be changed", "no other pages are affected", "out of scope: …" are NOT acceptance criteria and cannot be tested as written. Such scope boundaries and exclusions belong in technicalNotes (or definitionOfReady), never in acceptanceCriteria. Likewise, items that can only be checked by hand (visual polish with no measurable target, manual QA steps) go in technicalNotes, not acceptanceCriteria. A criterion the dev agent would be forced to mark "untestable" is a refinement mistake — rephrase it as a positive testable behaviour or move it to technicalNotes.
 - When you have enough to proceed, output the refined ticket as ONE fenced \`\`\`json block matching exactly:
   {
     "acceptanceCriteria": string[],   // testable, each independently verifiable
