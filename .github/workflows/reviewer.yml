@@ -1,0 +1,146 @@
+# Reviewer agent — drop this file into EACH target repo (backend, frontend).
+#
+# It runs `anthropics/claude-code-action@v1` on every pull request, reviews the
+# diff against the repo's CLAUDE.md and the linked Jira ticket's acceptance
+# criteria (fetched via the Atlassian MCP server), and submits a GitHub review.
+#
+# The review identity is the *reviewer* GitHub App — never the dev App — because
+# GitHub forbids a PR author from approving their own PR.
+name: agentic-reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Lifted to job level so the "Notify orchestrator" step's `if` can see it:
+    # neither `secrets` nor a step's own `env` is in scope inside a step `if`.
+    env:
+      INNGEST_EVENT_KEY: ${{ secrets.INNGEST_EVENT_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The action has no `mcp_config` input; --mcp-config (below) takes a FILE
+      # path, so write the Atlassian MCP server config to a temp file first. The
+      # Basic auth header is injected from the repo secret here, not committed.
+      - name: Write Atlassian MCP config
+        env:
+          ATLASSIAN_BASIC_AUTH: ${{ secrets.ATLASSIAN_BASIC_AUTH }}
+        run: |
+          cat > "$RUNNER_TEMP/mcp-config.json" <<EOF
+          {
+            "mcpServers": {
+              "atlassian": {
+                "type": "http",
+                "url": "https://mcp.atlassian.com/v1/mcp",
+                "headers": { "Authorization": "Basic ${ATLASSIAN_BASIC_AUTH}" }
+              }
+            }
+          }
+          EOF
+
+      - name: Review with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Approve/review as the SEPARATE reviewer identity — GitHub forbids the
+          # PR author from approving their own PR. Falls back to the built-in
+          # GITHUB_TOKEN (comment-only) if the reviewer PAT is not configured.
+          # NOTE: the secret cannot be named GITHUB_* (GitHub reserves that
+          # prefix), so the reviewer PAT secret is REVIEWER_GITHUB_TOKEN.
+          github_token: ${{ secrets.REVIEWER_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          # Stream the Claude session (tool calls, messages) into the action log
+          # so a long review is observable instead of silent. The action hides
+          # it by default because PR content is untrusted; these are our own
+          # repos, so observability wins.
+          show_full_output: true
+          # Model + MCP server are passed through to the Claude CLI via
+          # claude_args (the v1 action has no `model` / `mcp_config` inputs).
+          # --mcp-config takes the FILE written in the step above.
+          # --allowedTools must cover EVERYTHING the review needs, or those
+          # calls are silently DENIED and the agent exits without submitting a
+          # review (the run still shows green): reading the repo (Read/Glob/
+          # Grep), inspecting the PR (git + gh via Bash), the Atlassian MCP
+          # tools for the Jira ticket, and the action's GitHub MCP tools for
+          # inline comments and the review itself.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --mcp-config ${{ runner.temp }}/mcp-config.json
+            --allowedTools "Read,Glob,Grep,Bash(git:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh api:*),Bash(gh search:*),mcp__atlassian,mcp__github_inline_comment__create_inline_comment,mcp__github_comment__update_claude_comment,mcp__github_ci__get_ci_status"
+          prompt: |
+            Review this pull request as a senior engineer.
+
+            SCOPE — read this first. This ticket may span several repositories;
+            each repo's PR is responsible for ONLY the criteria listed in its
+            own body. The PR body section "Acceptance criteria (this repo)" is
+            the authoritative, complete list of what THIS repository must
+            satisfy. The Jira ticket will mention more criteria — those belong
+            to other repositories (a UI criterion is implemented in the
+            frontend repo, an API criterion in the backend repo). NEVER request
+            changes because a criterion outside this PR's list is "not
+            implemented" here — it is implemented elsewhere.
+
+            1. Read CLAUDE.md in this repo for the coding standards (skip if
+               the file does not exist).
+            2. Read the PR body and take the "Acceptance criteria (this repo)"
+               list as this review's scope.
+            3. For intent and background only: find the Jira ticket key in the
+               PR title, body, or branch name (pattern: feature/<TICKET-KEY>)
+               and fetch the ticket via the atlassian MCP server. Use it to
+               understand the goal — not to expand this PR's scope.
+            4. Verify the diff satisfies EVERY criterion in the PR body's list
+               and follows the standards. When a criterion specifies literal
+               content (titles, copy text, colors, enumerated items), verify it
+               appears EXACTLY as specified. Leave specific inline comments.
+            5. Do NOT invent requirements. Request changes ONLY for a violated
+               criterion from this PR's list, a real defect in the changed
+               code, or a breach of CLAUDE.md standards. Accessibility,
+               performance, styling, or testing demands that no criterion
+               states are out of scope — mention them as optional suggestions
+               at most, never as blocking.
+            5b. Do NOT assert root causes you have not verified. You cannot
+               run the tests or the app, so if the PR reports a failing gate,
+               flag THAT the gate is red and block on it — but never diagnose
+               WHY it fails from static reading alone, and never demand a
+               specific fix based on such a guess. A confident wrong diagnosis
+               sends the dev agent off implementing an unnecessary change.
+               Say "the test gate is red; fix it" and, at most, offer
+               possibilities clearly labeled as unverified.
+            6. Submit your review: approve only if all of THIS repo's criteria
+               are met and the standards are followed; otherwise request
+               changes.
+            7. ALWAYS add a comment on the Jira ticket (via the atlassian MCP
+               server) with your verdict — whether you approved or requested
+               changes. Include: the repo and PR number, the verdict, and a
+               2-3 sentence summary (what was checked, and for a rejection,
+               the key issues). Do this even when everything is good, so the
+               ticket carries a full review trail.
+
+      # Notify the orchestrator. Inngest exposes a public event-ingest endpoint,
+      # so CI can push the verdict without the orchestrator needing a public URL.
+      # Omit this step (and use the GitHub review poller instead) for local runs.
+      - name: Notify orchestrator
+        if: ${{ env.INNGEST_EVENT_KEY != '' }}
+        env:
+          TICKET_KEY: ${{ github.event.pull_request.head.ref }}
+        run: |
+          curl -sf -X POST \
+            "https://inn.gs/e/${INNGEST_EVENT_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"name\": \"ticket/review.submitted\",
+              \"data\": {
+                \"ticketKey\": \"${TICKET_KEY#feature/}\",
+                \"owner\": \"${{ github.repository_owner }}\",
+                \"repo\": \"${{ github.event.repository.name }}\",
+                \"prNumber\": ${{ github.event.pull_request.number }}
+              }
+            }"

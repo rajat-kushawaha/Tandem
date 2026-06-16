@@ -1,0 +1,26 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Sandbox checkouts created by the dev agent
+.sandbox/
+
+# File-backed run store (per-ticket runtime state) and the orchestrator log
+.run-store.json
+.run-store.json.tmp
+orchestrator.log
+
+# inngest self-hosted persistence
+.inngest/

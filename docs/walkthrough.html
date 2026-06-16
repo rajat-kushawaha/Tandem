@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic SDLC — Live Walkthrough</title>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --ink: #1d2733;
+        --muted: #647284;
+        --ba: #c47f10;
+        --dev: #2f7ff0;
+        --rev: #7c4ddb;
+        --human: #1f9e4e;
+        --sys: #2563eb;
+        --block: #e5484d;
+        --line: #dde5ef;
+        --card: #ffffff;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font-family: var(--sans); color: var(--ink);
+        background:
+          radial-gradient(1000px 560px at 82% -12%, #e3ecff, transparent),
+          radial-gradient(820px 560px at 6% 112%, #e7fbf1, transparent),
+          var(--bg);
+        overflow-x: hidden;
+      }
+      .top {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 14px 22px; border-bottom: 1px solid var(--line);
+        position: sticky; top: 0; z-index: 20;
+        background: rgba(255,255,255,.78); backdrop-filter: blur(10px);
+      }
+      .title { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+      .title small { color: var(--muted); font-weight: 500; font-size: 12.5px; margin-left: 8px; }
+      .controls { display: flex; gap: 8px; align-items: center; }
+      button {
+        font-family: var(--sans); font-weight: 650; font-size: 13px; cursor: pointer;
+        color: var(--ink); background: #fff; border: 1px solid var(--line);
+        padding: 8px 14px; border-radius: 8px; transition: .15s;
+        box-shadow: 0 1px 2px rgba(20,40,80,.05);
+      }
+      button:hover { border-color: #b9c6da; background: #f7faff; }
+      button.play { background: linear-gradient(180deg,#3b82f6,#2563eb); border-color:#2563eb; color:#fff; box-shadow:0 2px 8px rgba(37,99,235,.3); }
+      button:disabled { opacity:.4; cursor:default; }
+
+      .stage { position: relative; max-width: 1180px; margin: 0 auto; padding: 8px 16px 0; }
+      svg { width: 100%; height: auto; display: block; }
+
+      /* node card overlay */
+      .legend { display:flex; gap:18px; justify-content:center; flex-wrap:wrap; padding:14px 16px 4px; font-size:12.5px; color:var(--muted); }
+      .legend span { display:inline-flex; align-items:center; gap:7px; }
+      .sw { width:11px; height:11px; border-radius:3px; }
+
+      /* caption bar that changes as the packet moves */
+      .caption {
+        max-width: 920px; margin: 6px auto 0; padding: 16px 20px;
+        background: #fff;
+        border: 1px solid var(--line); border-radius: 14px;
+        display: grid; grid-template-columns: 56px 1fr; gap: 16px; align-items: center;
+        min-height: 92px; box-shadow: 0 6px 24px rgba(30,50,90,.07);
+      }
+      .cap-badge {
+        width:56px;height:56px;border-radius:14px;display:grid;place-items:center;
+        font-weight:800;font-size:22px;color:#fff;
+      }
+      .cap-body h3 { margin:0 0 3px; font-size:16.5px; }
+      .cap-body p { margin:0; font-size:13.5px; color:#4a5868; }
+      .cap-body .ev { font-family:var(--mono); font-size:11.5px; color:#1d5fd0; background:#eaf1ff; padding:1px 7px; border-radius:5px; border:1px solid #cfe0ff; }
+      .progress { display:flex; gap:5px; justify-content:center; padding:14px 0 4px; }
+      .progress i { width:26px;height:5px;border-radius:3px;background:#d6deea;transition:.2s; cursor:pointer; }
+      .progress i.on { background:var(--sys); }
+      .progress i.done { background:#a8c0e6; }
+
+      /* mini facts strip */
+      .facts { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; max-width:1180px; margin:22px auto 0; padding:0 16px; }
+      @media (max-width:780px){ .facts{grid-template-columns:repeat(2,1fr);} }
+      .fact { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; text-align:center; box-shadow:0 2px 10px rgba(30,50,90,.05); }
+      .fact b { display:block; font-size:22px; letter-spacing:-.5px; }
+      .fact span { font-size:11.5px; color:var(--muted); }
+
+      .footer { text-align:center; color:var(--muted); font-size:11.5px; padding:26px 16px 34px; }
+      .hint { text-align:center; color:var(--muted); font-size:12px; padding:4px; }
+
+      /* svg styling */
+      .node-box { rx:14; transition:.25s; }
+      .node-label { font: 700 14px var(--sans); fill:#1d2733; }
+      .node-sub { font: 500 10.5px var(--sans); fill:#5a6878; opacity:.95; }
+      .edge { fill:none; stroke:#c2cedd; stroke-width:2.5; }
+      .edge.active { stroke:#2f7ff0; stroke-width:3.5; filter:drop-shadow(0 0 5px rgba(47,127,240,.45)); }
+      .edge.block { stroke:#e5484d; stroke-dasharray:6 6; }
+      .edge-label { font: 600 10px var(--mono); fill:#8392a4; }
+      .glow { transition:.25s; }
+      .node .node-box { transition:.25s; }
+      .node.dim .node-box { opacity:.42; }
+      .node.dim .node-label,.node.dim .node-sub { opacity:.5; }
+      .node.hot .node-box { stroke-width:3; filter:drop-shadow(0 0 12px currentColor); }
+      .packet { filter:drop-shadow(0 0 6px rgba(47,127,240,.85)); }
+
+      /* speech bubble that pops near the active node */
+      .bubble {
+        position:absolute; max-width:248px; z-index:8;
+        background:#fff; color:#26303d; border:1px solid var(--line);
+        border-radius:14px; padding:11px 14px; font-size:13px; line-height:1.45;
+        box-shadow:0 10px 30px rgba(30,50,90,.16);
+        opacity:0; transform:translateY(6px) scale(.96); pointer-events:none;
+        transition:opacity .3s ease, transform .3s ease;
+      }
+      .bubble.show { opacity:1; transform:translateY(0) scale(1); }
+      .bubble b { color:#0f1722; }
+      .bubble .tip {
+        position:absolute; width:14px; height:14px; background:#fff;
+        border-left:1px solid var(--line); border-top:1px solid var(--line);
+        transform:rotate(45deg);
+      }
+      .bubble.below .tip { top:-8px; left:24px; }
+      .bubble.above .tip { bottom:-8px; left:24px; border:0; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }
+      .bubble .who { display:inline-block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:1px 7px; border-radius:999px; margin-bottom:5px; }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <div class="title">🤝 Agentic SDLC <small>watch CR-22 travel the whole pipeline</small></div>
+      <div class="controls">
+        <button id="prev">‹ Step</button>
+        <button id="play" class="play">▶ Play</button>
+        <button id="next">Step ›</button>
+        <button id="reset">↺</button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="sw" style="background:var(--ba)"></i> BA agent</span>
+      <span><i class="sw" style="background:var(--dev)"></i> Dev agent</span>
+      <span><i class="sw" style="background:var(--rev)"></i> Reviewer</span>
+      <span><i class="sw" style="background:var(--human)"></i> Human</span>
+      <span><i class="sw" style="background:var(--sys)"></i> Orchestrator</span>
+      <span><i class="sw" style="background:var(--block)"></i> Blocked / fail-safe</span>
+    </div>
+
+    <div class="stage">
+      <svg id="diagram" viewBox="0 0 1000 560" role="img" aria-label="Agentic SDLC flow diagram"></svg>
+      <div class="bubble" id="bubble"><span class="tip"></span><div id="bubbleText"></div></div>
+    </div>
+
+    <div class="caption" id="caption">
+      <div class="cap-badge" id="capBadge">▶</div>
+      <div class="cap-body" id="capBody">
+        <h3>Press Play to watch a ticket flow end-to-end</h3>
+        <p>Or use ‹ Step › to walk through it for your demo. Each stage highlights the actor and the event that triggers the next move.</p>
+      </div>
+    </div>
+    <div class="progress" id="progress"></div>
+    <div class="hint">Tip: ← → arrow keys also step through · Spacebar plays/pauses</div>
+
+    <div class="facts">
+      <div class="fact"><b style="color:var(--dev)">30s</b><span>Jira poll interval — the heartbeat that picks up work</span></div>
+      <div class="fact"><b style="color:var(--ba)">3 days</b><span>How long it waits for a Slack answer before escalating</span></div>
+      <div class="fact"><b style="color:var(--sys)">4</b><span>Fix attempts before it honestly says “blocked”</span></div>
+      <div class="fact"><b style="color:var(--human)">1</b><span>Human approval required for every merge — always</span></div>
+    </div>
+
+    <div class="footer">Self-contained demo · no server, works offline · numbers reflect this deployment (CR project · revelio-api + revelio-ui · 40-min wall-clock, 500-turn, 3M-token per-ticket budget)</div>
+
+    <script>
+      const SVG = "http://www.w3.org/2000/svg";
+      const C = { ba:'#c47f10', dev:'#2f7ff0', rev:'#7c4ddb', human:'#1f9e4e', sys:'#2563eb', block:'#e5484d', jira:'#5566e8', slack:'#d6469b', gh:'#5b6776' };
+
+      // ---- node geometry (id, x,y,w,h, color, label, sub) ----
+      const N = {
+        jira:   { x: 40,  y: 30,  w: 150, h: 60, c:C.jira,  l:'Jira board',   s:'BackLog · In Progress · QA · In PR review' },
+        poll:   { x: 420, y: 30,  w: 160, h: 60, c:C.sys,   l:'Orchestrator', s:'polls every 30s' },
+        ba:     { x: 40,  y: 170, w: 150, h: 64, c:C.ba,    l:'BA agent',     s:'refines the ticket' },
+        slack:  { x: 420, y: 170, w: 160, h: 60, c:C.slack, l:'Slack',        s:'ask & wait (3d)' },
+        human1: { x: 800, y: 170, w: 150, h: 60, c:C.human, l:'Human',        s:'answers in thread' },
+        dev:    { x: 40,  y: 320, w: 150, h: 64, c:C.dev,   l:'Dev agent',    s:'codes in a sandbox' },
+        gates:  { x: 420, y: 320, w: 160, h: 64, c:C.sys,   l:'Gates',        s:'gradlew check · npm' },
+        pr:     { x: 800, y: 320, w: 150, h: 60, c:C.gh,    l:'Pull request', s:'opens only if green' },
+        rev:    { x: 420, y: 470, w: 160, h: 62, c:C.rev,   l:'Reviewer (CI)',s:'senior-eng review' },
+        human2: { x: 800, y: 470, w: 150, h: 60, c:C.human, l:'Human merge',  s:'“In PR review” → merge' },
+        blocked:{ x: 40,  y: 470, w: 150, h: 62, c:C.block, l:'BLOCKED',      s:'honest fail-safe' },
+      };
+
+      // ---- edges (from,to, curve dir, label, optional class) ----
+      const E = [
+        ['jira','poll','h','sees column'],
+        ['poll','ba','v','refine.requested'],
+        ['ba','slack','h','ask_clarification'],
+        ['slack','human1','h',''],
+        ['human1','slack','hb','answered'],
+        ['ba','dev','vlong','→ In Progress'],
+        ['poll','gates','vlong',''],
+        ['dev','gates','h','implements'],
+        ['gates','dev','hb','problems ↺'],
+        ['gates','pr','h','shippable ✓'],
+        ['pr','rev','vr','PR opened'],
+        ['rev','dev','diag','changes ↺'],
+        ['rev','human2','h','approved'],
+        ['dev','blocked','v','4 attempts fail', 'block'],
+        ['slack','blocked','diag2','no answer 3d', 'block'],
+      ];
+
+      // ---- the guided story (which nodes glow, caption + speech bubble) ----
+      const STEPS = [
+        { hot:['jira','poll'], edge:'jira>poll', c:C.sys, n:'1', anchor:'poll',
+          h:'CR-22 lands in BackLog', p:'“Add a Hero Section to the Homepage.” The orchestrator notices it on the next 30-second poll — no buttons, no webhooks.', ev:'poll → event',
+          who:'Orchestrator', wc:C.sys, bubble:'“Every 30 seconds I scan the CR board. New ticket in BackLog? That’s my cue to wake the BA agent.”' },
+        { hot:['poll','ba'], edge:'poll>ba', c:C.ba, n:'2', anchor:'ba',
+          h:'BA agent picks it up', p:'It reads the raw ticket and decides if it has enough to refine, or needs to ask.', ev:'ticket/refine.requested',
+          who:'BA agent', wc:C.ba, bubble:'“Let me read this ticket… is it clear enough to build? If something’s missing, I won’t guess — I’ll ask.”' },
+        { hot:['ba','slack','human1'], edge:'ba>slack', c:C.ba, n:'3', anchor:'slack',
+          h:'Asks the team on Slack — and waits', p:'It reads the repos first, then batches only genuine business gaps into one thread. The workflow pauses durably for up to 3 days.', ev:'ask_clarification',
+          who:'BA agent', wc:C.ba, bubble:'“Headline text? CTA target? I checked the code first — these are real product gaps. One Slack thread, then I pause. No spinning, no spam, up to 3 days.”' },
+        { hot:['human1','slack','ba'], edge:'human1>slack', c:C.human, n:'4', anchor:'human1',
+          h:'A human replies → it resumes', p:'The answer wakes the paused workflow exactly where it stopped. No reply in 3 days → BLOCKED.', ev:'slack/clarification.answered',
+          who:'Human', wc:C.human, bubble:'“Here’s your answer.” → The reply instantly wakes the paused workflow right where it left off.' },
+        { hot:['ba','dev'], edge:'ba>dev', c:C.ba, n:'5', anchor:'ba',
+          h:'Refined → handed to the dev agent', p:'The BA writes acceptance criteria to Jira and moves it to In Progress — which is the dev trigger.', ev:'→ "In Progress"',
+          who:'BA agent', wc:C.ba, bubble:'“Done — clear criteria written back to Jira. I’ll move it to In Progress, and that hand-off is the dev agent’s trigger.”' },
+        { hot:['dev','gates'], edge:'dev>gates', c:C.dev, n:'6', anchor:'dev',
+          h:'Dev agent codes in a throwaway sandbox', p:'A UI-only ticket, so it routes to revelio-ui only. Fresh clone on feature/CR-22, writes code + tests. A shell guard blocks anything destructive.', ev:'ticket/dev.requested',
+          who:'Dev agent', wc:C.dev, bubble:'“Hero section is UI — I’ll touch revelio-ui only, not the backend. Fresh clone, branch feature/CR-22, code + tests, safely isolated from everything real.”' },
+        { hot:['gates','dev'], edge:'gates>dev', c:C.sys, n:'7', anchor:'gates',
+          h:'Orchestrator gates on green', p:'The system — not the agent — re-runs build/lint/test (gradlew check / npm). Failures feed the next attempt (up to 4).', ev:'gates + checklist',
+          who:'Orchestrator', wc:C.sys, bubble:'“I don’t take the agent’s word for it. I re-run build, lint and tests myself. Failed? Here are the exact errors — try again, up to 4 times.”' },
+        { hot:['gates','pr'], edge:'gates>pr', c:C.sys, n:'8', anchor:'pr',
+          h:'PR opens — only because it’s green', p:'Shippable = gates pass AND every criterion maps to a test. A PR opens per affected repo and the ticket moves to QA.', ev:'IN_PROGRESS → PR_OPEN · QA',
+          who:'Orchestrator', wc:C.sys, bubble:'“All green, every criterion covered by a test. Only now do I open the PR on revelio-ui and move CR-22 to QA. No green, no PR.”' },
+        { hot:['pr','rev'], edge:'pr>rev', c:C.rev, n:'9', anchor:'rev',
+          h:'Reviewer reviews in CI', p:'A separate identity reviews the diff vs standards + criteria and submits a real GitHub review.', ev:'ticket/review.submitted',
+          who:'Reviewer', wc:C.rev, bubble:'“I review like a senior engineer — diff vs the coding standards and the acceptance criteria. As a separate identity, since you can’t approve your own PR.”' },
+        { hot:['rev','dev'], edge:'rev>dev', c:C.rev, n:'↺', anchor:'dev',
+          h:'Changes requested? → back to dev', p:'A real GitHub “Request changes” (not a plain comment) loops the ticket back to the dev agent, which resumes the SAME branch with the review comments. Approved? → on to the human.', ev:'CHANGES_REQUESTED',
+          who:'Reviewer', wc:C.rev, bubble:'“Not quite there — here’s what to fix.” A formal Request-changes review loops straight back to the dev agent on the same feature/CR-22 branch — no human needed to relay it.' },
+        { hot:['rev','human2'], edge:'rev>human2', c:C.human, n:'✓', anchor:'human2',
+          h:'Approved → human merge gate', p:'Every PR approved moves CR-22 to “In PR review”. The agents have no merge power — a person presses merge, every time. Then it’s DONE.', ev:'APPROVED → “In PR review” → DONE',
+          who:'Human', wc:C.human, bubble:'“Looks good — merging.” Approval parks CR-22 in “In PR review” for me. The agents literally cannot merge; I press the button, every single time.' },
+      ];
+
+      const svg = document.getElementById('diagram');
+      const nodeEls = {}; const edgeEls = {};
+
+      function center(n){ return { x:n.x+n.w/2, y:n.y+n.h/2 }; }
+      function edgeKey(a,b){ return a+'>'+b; }
+
+      // build edges first (under nodes)
+      function buildEdge(from,to,dir,label,cls){
+        const a=N[from], b=N[to];
+        const A=center(a), B=center(b);
+        let d;
+        const startX = A.x, startY = A.y, endX=B.x, endY=B.y;
+        // route nicely depending on relative position
+        if (Math.abs(A.y-B.y)<5){ // horizontal
+          const sx = A.x < B.x ? a.x+a.w : a.x, ex = A.x<B.x ? b.x : b.x+b.w;
+          const off = (dir==='hb')? -26 : 0;
+          const my=(startY+endY)/2 + off;
+          d = `M ${sx} ${startY+ (dir==='hb'?-8:8)} C ${(sx+ex)/2} ${my}, ${(sx+ex)/2} ${my}, ${ex} ${endY+(dir==='hb'?-8:8)}`;
+        } else if (Math.abs(A.x-B.x)<5){ // vertical
+          const sy = A.y<B.y ? a.y+a.h : a.y, ey = A.y<B.y ? b.y : b.y+b.h;
+          const off = (dir==='vr')? 30 : 0;
+          d = `M ${startX+(dir==='vr'?10:0)} ${sy} C ${startX+off} ${(sy+ey)/2}, ${endX+off} ${(sy+ey)/2}, ${endX+(dir==='vr'?10:0)} ${ey}`;
+        } else { // diagonal-ish
+          const sy = A.y<B.y? a.y+a.h : a.y, ey=A.y<B.y? b.y : b.y+b.h;
+          d = `M ${startX} ${sy} C ${startX} ${(sy+ey)/2}, ${endX} ${(sy+ey)/2}, ${endX} ${ey}`;
+        }
+        const p=document.createElementNS(SVG,'path');
+        p.setAttribute('d',d); p.setAttribute('class','edge'+(cls?' '+cls:''));
+        p.dataset.key=edgeKey(from,to); p.dataset.path=d;
+        svg.appendChild(p);
+        edgeEls[edgeKey(from,to)] = p;
+        if(label){
+          const lx=(A.x+B.x)/2, ly=(A.y+B.y)/2;
+          const t=document.createElementNS(SVG,'text');
+          t.setAttribute('x',lx); t.setAttribute('y',ly-4);
+          t.setAttribute('text-anchor','middle');
+          t.setAttribute('font-family','var(--mono)');
+          t.setAttribute('font-size','9.5'); t.setAttribute('fill',cls==='block'?'#d77':'#6b7c93');
+          t.textContent=label; svg.appendChild(t);
+        }
+      }
+      E.forEach(e=>buildEdge(...e));
+
+      // build nodes on top
+      function buildNode(id,n){
+        const g=document.createElementNS(SVG,'g'); g.setAttribute('class','node'); g.style.color=n.c;
+        const r=document.createElementNS(SVG,'rect');
+        r.setAttribute('x',n.x); r.setAttribute('y',n.y); r.setAttribute('width',n.w); r.setAttribute('height',n.h);
+        r.setAttribute('rx',14); r.setAttribute('class','node-box');
+        r.setAttribute('fill', shade(n.c)); r.setAttribute('stroke',n.c); r.setAttribute('stroke-width','1.5');
+        const t1=document.createElementNS(SVG,'text');
+        t1.setAttribute('x',n.x+n.w/2); t1.setAttribute('y',n.y+n.h/2-4);
+        t1.setAttribute('text-anchor','middle'); t1.setAttribute('class','node-label'); t1.textContent=n.l;
+        const t2=document.createElementNS(SVG,'text');
+        t2.setAttribute('x',n.x+n.w/2); t2.setAttribute('y',n.y+n.h/2+13);
+        t2.setAttribute('text-anchor','middle'); t2.setAttribute('class','node-sub'); t2.textContent=n.s;
+        g.append(r,t1,t2); svg.appendChild(g); nodeEls[id]=g;
+      }
+      function shade(hex){ // translucent fill from accent
+        const h=hex.replace('#',''); const r=parseInt(h.substr(0,2),16),g=parseInt(h.substr(2,2),16),b=parseInt(h.substr(4,2),16);
+        return `rgba(${r},${g},${b},0.14)`;
+      }
+      Object.entries(N).forEach(([id,n])=>buildNode(id,n));
+
+      // moving packet
+      const packet=document.createElementNS(SVG,'circle');
+      packet.setAttribute('r','7'); packet.setAttribute('class','packet'); packet.setAttribute('fill','#2f7ff0');
+      packet.setAttribute('opacity','0'); svg.appendChild(packet);
+
+      // ---- progress dots ----
+      const prog=document.getElementById('progress');
+      STEPS.forEach((s,i)=>{ const d=document.createElement('i'); d.onclick=()=>goto(i); prog.appendChild(d); });
+
+      let idx=-1, timer=null;
+
+      function applyStep(i){
+        const s=STEPS[i];
+        // nodes
+        Object.entries(nodeEls).forEach(([id,el])=>{
+          el.classList.remove('hot','dim');
+          if(s.hot.includes(id)) el.classList.add('hot'); else el.classList.add('dim');
+        });
+        // edges
+        Object.values(edgeEls).forEach(e=>e.classList.remove('active'));
+        const ek=s.edge; if(edgeEls[ek]) edgeEls[ek].classList.add('active');
+        // caption
+        document.getElementById('capBadge').style.background=s.c;
+        document.getElementById('capBadge').textContent=s.n;
+        document.getElementById('capBody').innerHTML=
+          `<h3>${s.h}</h3><p>${s.p} &nbsp;<span class="ev">${s.ev}</span></p>`;
+        // progress
+        [...prog.children].forEach((d,j)=>{ d.className=''; if(j<i)d.classList.add('done'); if(j===i)d.classList.add('on'); });
+        // speech bubble near the anchor node
+        showBubble(s);
+        // packet animation along active edge
+        animatePacket(ek);
+      }
+
+      const bubble=document.getElementById('bubble');
+      const bubbleText=document.getElementById('bubbleText');
+      function showBubble(s){
+        bubble.classList.remove('show');
+        const node=N[s.anchor]; if(!node) return;
+        // map SVG coords -> on-screen pixels relative to .stage
+        const rect=svg.getBoundingClientRect();
+        const stageRect=svg.parentElement.getBoundingClientRect();
+        const sx=rect.width/1000, sy=rect.height/560;
+        const offX=rect.left-stageRect.left, offY=rect.top-stageRect.top;
+        // node centre-top in px
+        const nodeTopPx = offY + node.y*sy;
+        const nodeBottomPx = offY + (node.y+node.h)*sy;
+        const nodeLeftPx = offX + node.x*sx;
+        // prefer placing below the node; if low on the diagram, place above
+        const below = node.y < 300;
+        bubbleText.innerHTML =
+          `<span class="who" style="background:${hexA(s.wc,.14)};color:${s.wc}">${s.who}</span><br>${s.bubble}`;
+        bubble.style.left = Math.max(8, Math.min(nodeLeftPx, stageRect.width-260)) + 'px';
+        bubble.classList.toggle('below', below);
+        bubble.classList.toggle('above', !below);
+        // measure after text set
+        requestAnimationFrame(()=>{
+          const bh=bubble.offsetHeight;
+          bubble.style.top = (below ? nodeBottomPx+14 : nodeTopPx-bh-14) + 'px';
+          bubble.classList.add('show');
+        });
+      }
+      function hexA(hex,a){ const h=hex.replace('#',''); return `rgba(${parseInt(h.substr(0,2),16)},${parseInt(h.substr(2,2),16)},${parseInt(h.substr(4,2),16)},${a})`; }
+      window.addEventListener('resize',()=>{ if(idx>=0) showBubble(STEPS[idx]); });
+
+      function animatePacket(ek){
+        const path=edgeEls[ek]; packet.setAttribute('opacity','0');
+        if(!path) return;
+        const len=path.getTotalLength(); let start=null; const dur=900;
+        packet.setAttribute('opacity','1');
+        function frame(ts){
+          if(start===null) start=ts;
+          const t=Math.min((ts-start)/dur,1);
+          const pt=path.getPointAtLength(t*len);
+          packet.setAttribute('cx',pt.x); packet.setAttribute('cy',pt.y);
+          if(t<1) requestAnimationFrame(frame); else setTimeout(()=>packet.setAttribute('opacity','0'),250);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      function goto(i){ idx=Math.max(0,Math.min(STEPS.length-1,i)); applyStep(idx); }
+      function next(){ if(idx<STEPS.length-1) goto(idx+1); else stop(); }
+      function prev(){ if(idx>0) goto(idx-1); }
+      function play(){ if(timer){stop();return;} if(idx>=STEPS.length-1) goto(0); else if(idx<0) goto(0);
+        document.getElementById('play').textContent='❚❚ Pause';
+        timer=setInterval(()=>{ if(idx>=STEPS.length-1){stop();return;} next(); }, 2600); }
+      function stop(){ clearInterval(timer); timer=null; document.getElementById('play').textContent='▶ Play'; }
+      function reset(){ stop(); idx=-1; goto(0); }
+
+      document.getElementById('next').onclick=()=>{stop();next();};
+      document.getElementById('prev').onclick=()=>{stop();prev();};
+      document.getElementById('play').onclick=play;
+      document.getElementById('reset').onclick=reset;
+      document.addEventListener('keydown',e=>{
+        if(e.key==='ArrowRight'){stop();next();}
+        if(e.key==='ArrowLeft'){stop();prev();}
+        if(e.key===' '){e.preventDefault();play();}
+      });
+
+      goto(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "name": "agentic-sdlc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node --env-file=.env --import tsx src/main.ts",
+    "start:logged": "node --env-file=.env --import tsx src/main.ts | tee -a orchestrator.log",
+    "start:inngest": "node --env-file=.env scripts/start-inngest.mjs",
+    "dev:inngest": "npx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
+    "dev:trigger": "node --env-file=.env --import tsx scripts/trigger.ts",
+    "watch:ba": "tail -F orchestrator.log | node scripts/log-filter.mjs ba",
+    "watch:dev": "tail -F orchestrator.log | node scripts/log-filter.mjs dev",
+    "watch:reviewer": "tail -F orchestrator.log | node scripts/log-filter.mjs reviewer"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "@octokit/app": "^15.1.6",
+    "@octokit/rest": "^21.1.1",
+    "@slack/socket-mode": "^2.0.4",
+    "@slack/web-api": "^7.9.1",
+    "inngest": "^3.40.1",
+    "pino": "^9.6.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "@types/node": "^20.17.30",
+    "eslint": "^9.24.0",
+    "eslint-config-prettier": "^10.1.1",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.29.0",
+    "vitest": "^3.1.1"
+  }
+}
