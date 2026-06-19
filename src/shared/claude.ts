@@ -21,7 +21,20 @@ export interface AgentRunRequest {
   readonly model: string;
   /** Explicit allowlist — an agent can only use tools named here. */
   readonly allowedTools: readonly string[];
+  /**
+   * Our domain-specific instructions. By default these are *appended* to Claude
+   * Code's built-in system prompt (see `usePresetSystemPrompt`), not used as a
+   * replacement — the built-in preset is what gives the agent its coding
+   * conventions, tool-use discipline, and verification habits. Passing a bare
+   * string here without the preset (the SDK's default) discards all of that.
+   */
   readonly systemPrompt: string;
+  /**
+   * When true (the default), `systemPrompt` is appended on top of Claude Code's
+   * built-in `claude_code` preset. Set false only for an agent that genuinely
+   * needs a from-scratch prompt with none of the coding defaults.
+   */
+  readonly usePresetSystemPrompt?: boolean;
   readonly prompt: string;
   readonly mcpServers?: Readonly<Record<string, McpServerConfig>>;
   readonly hooks?: Options['hooks'];
@@ -75,14 +88,23 @@ function authEnv(): Record<string, string> {
 export async function runAgent(
   request: AgentRunRequest,
 ): Promise<AgentRunResult> {
+  const usePreset = request.usePresetSystemPrompt ?? true;
   const options: Options = {
     model: request.model,
     allowedTools: [...request.allowedTools],
-    systemPrompt: request.systemPrompt,
+    // Build on Claude Code's built-in system prompt (the source of its code
+    // quality) and append our domain rules, rather than replacing it with a bare
+    // string. A string `systemPrompt` would discard the preset entirely.
+    systemPrompt: usePreset
+      ? { type: 'preset', preset: 'claude_code', append: request.systemPrompt }
+      : request.systemPrompt,
     maxTurns: request.maxTurns ?? config.MAX_TURNS_PER_RUN,
     permissionMode: request.permissionMode ?? 'default',
-    // Start from a clean slate: no inherited user/project settings or tools.
-    settingSources: [],
+    // Load the target repo's project settings so the agent reads its CLAUDE.md
+    // (build commands, conventions) the way Claude Code does. `cwd` is the
+    // sandbox checkout, so this loads the TARGET repo's settings, not this
+    // orchestrator's. The `allowedTools` allowlist still gates what can run.
+    settingSources: ['project'],
     env: { ...process.env, ...authEnv() },
     ...(request.mcpServers ? { mcpServers: request.mcpServers } : {}),
     ...(request.hooks ? { hooks: request.hooks } : {}),

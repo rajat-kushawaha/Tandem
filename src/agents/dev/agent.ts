@@ -25,6 +25,9 @@ const DEV_ALLOWED_TOOLS = [
   'Grep',
   'Bash',
   'TodoWrite',
+  // Lets the agent fan out exploration into subagents on larger tickets, the way
+  // Claude Code does, instead of reading the whole repo in its own context.
+  'Task',
 ];
 
 export interface DevSessionResult {
