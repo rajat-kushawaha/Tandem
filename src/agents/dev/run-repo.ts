@@ -18,6 +18,7 @@ import {
   baselineFailures,
   gatesEffectivelyGreen,
   resolveGates,
+  runBaselineGates,
   runGates,
   summarizeGates,
   type GateResult,
@@ -98,9 +99,10 @@ export async function developRepo(
   // reported but never block, so a broken base can't trap the agent in a loop
   // it cannot win. install/build failures are never waived (see gates.ts).
   const gates = await resolveGates(sandbox.stack, sandbox.path);
-  const baseline = await runGates(sandbox.path, gates, {
-    continueOnFailure: true,
-  });
+  // Retry a failed baseline gate once: the cold first run can flake on a base
+  // branch that is actually green, and a false "pre-existing" waiver is what
+  // sends a red gate onto the PR body and traps dev↔reviewer in a loop.
+  const baseline = await runBaselineGates(sandbox.path, gates);
   const waived = baselineFailures(baseline);
   if (waived.size > 0) {
     log.warn(
@@ -193,7 +195,7 @@ export async function developRepo(
       owner: repo.owner,
       repo: repo.repo,
       title: `${ticket.key}: ${ticket.summary}`,
-      body: pullRequestBody(ticket, criteria, checklist, gateResults),
+      body: pullRequestBody(ticket, criteria, checklist, gateResults, waived),
       head: sandbox.branch,
       base: config.GITHUB_BASE_BRANCH,
     });
@@ -214,7 +216,7 @@ export async function developRepo(
           '',
           ...context.reviewFeedback.map((item) => `- ${item}`),
           '',
-          `All gates pass on the current head (${summarizeGates(gateResults).split('\n').join(', ')}).`,
+          `All gates pass on the current head (${summarizeGates(gateResults, waived).split('\n').join(', ')}).`,
           'Pushing an empty commit to trigger a fresh review of the unchanged code.',
         ].join('\n'),
       );
@@ -265,6 +267,7 @@ function pullRequestBody(
   criteria: readonly string[],
   checklist: Checklist | null,
   gateResults: readonly GateResult[],
+  waived: ReadonlySet<string>,
 ): string {
   // Render the criteria THIS repo owns, checked against the agent's ACTUAL
   // checklist (not a blanket [x]). A criterion mapped to a satisfied test is
@@ -289,7 +292,7 @@ function pullRequestBody(
     '',
     '## Gates',
     '```',
-    summarizeGates(gateResults),
+    summarizeGates(gateResults, waived),
     '```',
     '',
     '_Opened by the dev agent. Requires human approval before merge._',

@@ -164,4 +164,19 @@ describe('gate aggregation', () => {
   it('summarizes with check and cross marks', () => {
     expect(summarizeGates([pass, fail])).toBe('✓ build\n✗ test');
   });
+
+  it('marks a waived gate as ⚠ pre-existing, not ✗, so the reviewer does not block on it', () => {
+    // The dev↔reviewer loop bug: a base-branch failure waived by the dev side
+    // was rendered as a plain ✗ on the PR, and the reviewer blocked on it. A
+    // waived gate must read distinctly as pre-existing/non-blocking.
+    const summary = summarizeGates([pass, fail], new Set(['test']));
+    expect(summary).toContain('✓ build');
+    expect(summary).toContain('⚠ test');
+    expect(summary).toContain('pre-existing');
+    expect(summary).not.toContain('✗ test');
+  });
+
+  it('still renders a non-waived failure as ✗ (a real regression)', () => {
+    expect(summarizeGates([fail], new Set())).toBe('✗ test');
+  });
 });

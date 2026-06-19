@@ -164,6 +164,44 @@ export async function runGates(
 }
 
 /**
+ * Runs the gates on the PRISTINE checkout to learn the base branch's status,
+ * retrying any gate that fails on its FIRST run exactly once.
+ *
+ * The first gate run per ticket is the cold one: Gradle/Maven download the whole
+ * dependency graph and start a daemon, npm runs `ci` from an empty cache — and
+ * under that load a gate can flake (slow download, transient daemon error, or a
+ * brush with the timeout) on a base branch that is actually green. A baseline
+ * flake is uniquely damaging: the gate gets WAIVED as "pre-existing", the dev
+ * agent ships, and the PR body then advertises a red gate the reviewer blocks
+ * on — an unbreakable dev↔reviewer loop. A single retry on a now-warm checkout
+ * distinguishes a genuine pre-existing failure (fails twice) from a cold-start
+ * flake (passes on retry), at the cost of one extra run only when a gate is red.
+ */
+export async function runBaselineGates(
+  cwd: string,
+  gates: readonly GateCommand[],
+): Promise<GateResult[]> {
+  const first = await runGates(cwd, gates, { continueOnFailure: true });
+  const results: GateResult[] = [];
+  for (const result of first) {
+    if (result.passed) {
+      results.push(result);
+      continue;
+    }
+    logger.info(
+      { gate: result.name, cwd },
+      'baseline gate failed on cold run; retrying once on the warm checkout',
+    );
+    const gate = gates.find((g) => g.name === result.name);
+    const [retry] = gate
+      ? await runGates(cwd, [gate], { continueOnFailure: true })
+      : [];
+    results.push(retry ?? result);
+  }
+  return results;
+}
+
+/**
  * Names of gates that were already failing on the clean base checkout, i.e.
  * regressions that pre-date the agent's change.
  *
@@ -203,8 +241,23 @@ export function gatesEffectivelyGreen(
   );
 }
 
-export function summarizeGates(results: readonly GateResult[]): string {
+export function summarizeGates(
+  results: readonly GateResult[],
+  waived: ReadonlySet<string> = new Set(),
+): string {
   return results
-    .map((result) => `${result.passed ? '✓' : '✗'} ${result.name}`)
+    .map((result) => {
+      if (result.passed) {
+        return `✓ ${result.name}`;
+      }
+      // A waived gate was already red on the base branch BEFORE this change —
+      // not a regression this PR introduced. Mark it distinctly (⚠, not ✗) and
+      // say so, so the reviewer does not block on a pre-existing failure the
+      // change did not cause (which would loop the ticket back to dev forever).
+      if (waived.has(result.name)) {
+        return `⚠ ${result.name} — pre-existing failure on the base branch (not introduced by this change); not blocking`;
+      }
+      return `✗ ${result.name}`;
+    })
     .join('\n');
 }

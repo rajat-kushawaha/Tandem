@@ -114,6 +114,13 @@ jobs:
                sends the dev agent off implementing an unnecessary change.
                Say "the test gate is red; fix it" and, at most, offer
                possibilities clearly labeled as unverified.
+            5c. A gate in the PR body marked with ⚠ and described as a
+               "pre-existing failure on the base branch (not introduced by
+               this change)" is NOT grounds to request changes — it was already
+               red before this work and the dev agent cannot fix unrelated base
+               debt. Only a gate marked ✗ (a regression THIS change introduced)
+               blocks. Never request changes solely because a ⚠ pre-existing
+               gate is present; at most note it as out-of-scope cleanup.
             6. Submit your review: approve only if all of THIS repo's criteria
                are met and the standards are followed; otherwise request
                changes.

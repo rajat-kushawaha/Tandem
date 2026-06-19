@@ -84,4 +84,14 @@ describe('BA system prompt — testable acceptance criteria', () => {
     expect(BA_SYSTEM_PROMPT).toMatch(/untestable/i);
     expect(BA_SYSTEM_PROMPT).toMatch(/technicalNotes/);
   });
+
+  it('requires acceptance criteria to be short, plain, and free of code detail', () => {
+    // Pins the fix for verbose, backtick/identifier-laden criteria that the dev
+    // agent cannot reproduce verbatim in its checklist (exact-match in
+    // evaluateChecklist), trapping it in a re-verify loop — and that are hard
+    // for humans to read.
+    expect(BA_SYSTEM_PROMPT).toMatch(/KEEP ACCEPTANCE CRITERIA SHORT AND PLAIN/);
+    expect(BA_SYSTEM_PROMPT).toMatch(/plain business language/i);
+    expect(BA_SYSTEM_PROMPT).toMatch(/backticks/i);
+  });
 });
