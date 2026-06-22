@@ -15,6 +15,21 @@ export const checklistItemSchema = z.object({
   satisfied: z.boolean(),
   /** Set when the criterion cannot be expressed as a test as written. */
   untestable: z.boolean().default(false),
+  /**
+   * True when the criterion describes a USER INTERACTION in a browser — a click,
+   * navigation, form submit, hover, keyboard action, or any "when the user does
+   * X, Y happens" behaviour. Such criteria cannot be honestly proven by a unit
+   * test against mocks (a mocked router or `useNavigate` will report success even
+   * when the real button is intercepted by a parent link or the route never
+   * resolves). They must be exercised by the browser smoke gate.
+   */
+  interaction: z.boolean().default(false),
+  /**
+   * A browser/e2e test that exercises the interaction end-to-end, e.g.
+   * `smoke.spec.ts#clicking Edit opens the edit form`. REQUIRED when
+   * `interaction` is true — see {@link evaluateChecklist}.
+   */
+  browserTestReference: z.string().default(''),
 });
 
 export const checklistSchema = z.object({
@@ -83,6 +98,16 @@ export function evaluateChecklist(
     }
     if (item.testReference.trim() === '') {
       problems.push(`No test mapped to criterion: "${criterion}".`);
+      continue;
+    }
+    // An interaction criterion proven only by a unit test is the exact blind
+    // spot that ships broken buttons: the mock reports success while the real
+    // browser does something else. Require a browser/e2e test reference too.
+    if (item.interaction && item.browserTestReference.trim() === '') {
+      problems.push(
+        `Criterion describes a user interaction but has no browser/e2e test ` +
+          `(browserTestReference); a unit test against mocks cannot prove it: "${criterion}".`,
+      );
       continue;
     }
     if (!item.satisfied) {

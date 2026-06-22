@@ -1,5 +1,5 @@
 import { evaluateChecklist, type Checklist } from './checklist.js';
-import type { GateResult } from './gates.js';
+import { isNonBlockingGate, type GateResult } from './gates.js';
 
 /**
  * Decides whether a dev attempt is shippable. An attempt succeeds only when the
@@ -42,6 +42,11 @@ export function evaluateAttempt(
     if (result.passed) {
       continue;
     }
+    // A non-blocking gate (e.g. browser provisioning for smoke) never blocks an
+    // attempt on its own; the gate it serves carries the real signal.
+    if (isNonBlockingGate(result.name)) {
+      continue;
+    }
     if (baselineFailures.has(result.name)) {
       // Already red on base — not this change's fault. Note it, don't block.
       preExisting.push(result.name);
@@ -62,6 +67,24 @@ export function evaluateAttempt(
   }
 
   return { shippable: problems.length === 0, problems, preExisting };
+}
+
+/**
+ * Whether a no-diff attempt is an already-satisfied finding to escalate rather
+ * than a PR to open. True only on a FIRST run (no reviewer feedback) that
+ * committed nothing: the criteria are satisfied by code already on the base
+ * branch, so there is nothing to ship — opening a PR would fail with an empty
+ * diff, and shipping pre-existing code as if the agent wrote it would be a lie.
+ *
+ * A rework (reviewer feedback present) that produces no diff is a different,
+ * legitimate case — the agent re-verified the branch and judged it already
+ * correct — and is handled by re-requesting review on the existing PR, not here.
+ */
+export function shouldEscalateNoDiff(
+  committed: boolean,
+  isFirstRun: boolean,
+): boolean {
+  return !committed && isFirstRun;
 }
 
 /** Keeps the most recent (and most relevant) tail of a gate's output. */

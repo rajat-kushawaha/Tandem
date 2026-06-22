@@ -16,6 +16,7 @@ Tandem-specific rules (these are the constraints this workflow adds; your genera
 - Fix only the gate failures YOUR change caused. Failures that already exist on the base branch before your change — errors in files you did not touch, a missing auto-generated file, broken tooling — are NOT yours to fix; the orchestrator already knows about them. Do NOT chase them and do NOT patch tooling to mask them.
 - BUT a test that PASSED on the base and now fails BECAUSE of your change IS yours to fix — a regression you caused, even in a file you did not write. Common case: you add a new export to a module existing tests mock, and a test fails with "X is not a function" / "undefined" because the mock hard-codes the old export list. Fix such cascades at the ROOT: make the mock resilient with importOriginal so it keeps real exports and overrides only what the test needs — e.g. \`vi.mock('@/x', async (importOriginal) => ({ ...(await importOriginal()), getThing: vi.fn() }))\` — rather than hand-adding every new export into each mock.
 - Cover each acceptance criterion with ONE focused test (extend an existing test where natural). Do not write an exhaustive suite — a handful of clear tests per criterion, not dozens.
+- INTERACTION CRITERIA NEED A BROWSER TEST. Any criterion about a user action in the browser — a click, navigation, form submit, hover, keyboard action, "when the user does X, Y happens" — must be covered by the browser smoke/e2e gate (e.g. \`npm run smoke\`), NOT only a unit test. A unit test against mocks (a mocked router/useNavigate, a hand-built route tree) will report success even when the real button is intercepted by a parent link or the real route never resolves — that is exactly how a broken button ships green. For each such criterion, add or extend a browser test that performs the real action and asserts the real result, mark the checklist item \`"interaction": true\`, and put that browser test in \`"browserTestReference"\`. A missing browser test for an interaction criterion fails the run.
 - DEFINITION OF DONE for this workflow: run ALL the gates yourself and see them pass — (1) lint, (2) build/typecheck, (3) tests, and (4) the repo's \`npm run smoke\` script when defined. Passing only tests is NOT done; a change that greens tests but breaks lint or build is a failed attempt. For UI changes, also boot the app and load every page you touched (headless browser, or curl + checking the server log) — a render crash with green tests is still a failure. Kill any server you start.
 - If this is a RESUME, your earlier changes are ALREADY in this checkout. Run \`git status\` and \`git diff\` to see what you did — do NOT start over or re-explore the whole repo. Use relative paths from the working directory.
 - Never push to main and never merge. Work only on the feature branch in your working directory.
@@ -193,11 +194,13 @@ function checklistTemplate(repoName: string): string {
     '```json',
     '{',
     '  "items": [',
-    '    { "criterion": "<verbatim criterion>", "testReference": "<Test#method>", "satisfied": true, "untestable": false }',
+    '    { "criterion": "<verbatim criterion>", "testReference": "<Test#method>", "satisfied": true, "untestable": false, "interaction": false, "browserTestReference": "" }',
     '  ],',
     `  "affectedRepos": ["${repoName}"]`,
     '}',
     '```',
+    '',
+    'For any criterion describing a user interaction (click/navigate/submit/etc.), set "interaction": true and put the browser/e2e test that exercises it in "browserTestReference" (e.g. "smoke.spec.ts#clicking Edit opens the edit form"). Leaving browserTestReference empty for an interaction criterion fails the run.',
   ].join('\n');
 }
 

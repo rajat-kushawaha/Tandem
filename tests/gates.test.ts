@@ -37,6 +37,7 @@ describe('gatesForStack', () => {
       'lint',
       'build',
       'test',
+      'smoke:install',
       'smoke',
     ]);
   });
@@ -59,6 +60,23 @@ describe('resolveGates', () => {
     await writePackageJson({ lint: 'eslint .', build: 'tsc', test: 'vitest' });
     const names = (await resolveGates('node', dir)).map((g) => g.name);
     expect(names).toEqual(['npm install', 'lint', 'build', 'test']);
+  });
+
+  it('includes smoke:install before smoke when both scripts exist', async () => {
+    await writePackageJson({
+      test: 'vitest',
+      'smoke:install': 'playwright install chromium',
+      smoke: 'playwright test',
+    });
+    const names = (await resolveGates('node', dir)).map((g) => g.name);
+    expect(names).toEqual(['npm install', 'test', 'smoke:install', 'smoke']);
+    expect(names.indexOf('smoke:install')).toBeLessThan(names.indexOf('smoke'));
+  });
+
+  it('drops smoke:install for a repo that does not define it', async () => {
+    await writePackageJson({ test: 'vitest', smoke: 'playwright test' });
+    const names = (await resolveGates('node', dir)).map((g) => g.name);
+    expect(names).not.toContain('smoke:install');
   });
 
   it('drops lint/build gates the repo does not define', async () => {
@@ -178,5 +196,31 @@ describe('gate aggregation', () => {
 
   it('still renders a non-waived failure as ✗ (a real regression)', () => {
     expect(summarizeGates([fail], new Set())).toBe('✗ test');
+  });
+
+  it('does not let a failed non-blocking gate (smoke:install) block shipping', () => {
+    const smokeInstallFail: GateResult = {
+      name: 'smoke:install',
+      passed: false,
+      output: 'network blip',
+    };
+    const smokePass: GateResult = { name: 'smoke', passed: true, output: '' };
+    // smoke:install only provisions the browser; the smoke gate carries the
+    // signal. A failed install must not, by itself, fail the attempt.
+    expect(allGatesPassed([pass, smokeInstallFail, smokePass])).toBe(true);
+    expect(
+      gatesEffectivelyGreen([pass, smokeInstallFail, smokePass], new Set()),
+    ).toBe(true);
+  });
+
+  it('hides a failed non-blocking gate from the PR summary (it is not a signal)', () => {
+    const smokeInstallFail: GateResult = {
+      name: 'smoke:install',
+      passed: false,
+      output: 'network blip',
+    };
+    const summary = summarizeGates([pass, smokeInstallFail], new Set());
+    expect(summary).toBe('✓ build');
+    expect(summary).not.toContain('smoke:install');
   });
 });

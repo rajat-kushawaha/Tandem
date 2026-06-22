@@ -115,4 +115,38 @@ describe('evaluateChecklist', () => {
     expect(result.complete).toBe(false);
     expect(result.problems[0]).toMatch(/No checklist entry/);
   });
+
+  it('flags an interaction criterion that has only a unit test (no browser test)', () => {
+    // The exact CR-38 blind spot: a click/navigation AC mapped to a mocked unit
+    // test that passes while the real button is broken. Without a browser test
+    // reference, the interaction is unproven and must block.
+    const result = evaluateChecklist(
+      criteria,
+      checklist([{ interaction: true, browserTestReference: '' }, {}]),
+    );
+    expect(result.complete).toBe(false);
+    expect(result.problems[0]).toMatch(/user interaction/);
+  });
+
+  it('passes an interaction criterion that has a browser test reference', () => {
+    const result = evaluateChecklist(
+      criteria,
+      checklist([
+        {
+          interaction: true,
+          browserTestReference: 'smoke.spec.ts#clicking Edit opens the form',
+        },
+        {},
+      ]),
+    );
+    expect(result.complete).toBe(true);
+  });
+
+  it('does not require a browser test for a non-interaction criterion', () => {
+    const result = evaluateChecklist(
+      criteria,
+      checklist([{ interaction: false, browserTestReference: '' }, {}]),
+    );
+    expect(result.complete).toBe(true);
+  });
 });

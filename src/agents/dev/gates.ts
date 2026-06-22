@@ -49,7 +49,17 @@ const GATES: Record<Stack, readonly GateCommand[]> = {
     { name: 'lint', command: 'npm', args: ['run', 'lint'] },
     { name: 'build', command: 'npm', args: ['run', 'build'] },
     { name: 'test', command: 'npm', args: ['test'] },
-    // Browser smoke: boots the app headlessly and fails on render crashes that
+    // Browser provisioning for the smoke gate (e.g. `playwright install
+    // chromium`). MUST run AFTER `npm install` (it invokes the playwright CLI
+    // from node_modules/.bin) and BEFORE `smoke`. Without it `npm run smoke`
+    // errors on a missing browser, gets waived as a pre-existing baseline
+    // failure, and the browser gate dies fleet-wide. Repo-defined and
+    // non-blocking — see resolveGates / runGates: a backend repo has no such
+    // script (dropped), and a failed install lets `smoke` surface the problem
+    // loudly rather than silently disabling it.
+    { name: 'smoke:install', command: 'npm', args: ['run', 'smoke:install'] },
+    // Browser smoke: boots the app headlessly and fails on render crashes AND
+    // broken interactions (a button that navigates to the wrong route) that
     // lint/build/unit tests (which run against mocks) cannot see. Repo-defined,
     // skipped when absent — see resolveGates.
     { name: 'smoke', command: 'npm', args: ['run', 'smoke'] },
@@ -64,8 +74,23 @@ export function gatesForStack(stack: Stack): readonly GateCommand[] {
 const OPTIONAL_NPM_SCRIPTS: Record<string, string> = {
   lint: 'lint',
   build: 'build',
+  'smoke:install': 'smoke:install',
   smoke: 'smoke',
 };
+
+/**
+ * Gates that must not stop the sequence on failure, even outside a baseline run.
+ * `smoke:install` only provisions the browser for the `smoke` gate; if it fails
+ * we still want `smoke` to run and report the real (now-visible) problem rather
+ * than aborting the whole gate sequence here. It is also never the quality
+ * signal itself — the `smoke` gate is.
+ */
+const NON_BLOCKING_GATES = new Set(['smoke:install']);
+
+/** True for gates that provision/support others and never block shipping. */
+export function isNonBlockingGate(name: string): boolean {
+  return NON_BLOCKING_GATES.has(name);
+}
 
 /** Reads the `scripts` map from a repo's package.json (empty on any error). */
 async function readNpmScripts(cwd: string): Promise<Record<string, unknown>> {
@@ -152,6 +177,11 @@ export async function runGates(
         passed: false,
         output: error instanceof Error ? error.message : String(error),
       });
+      // A non-blocking gate (browser provisioning) must never abort the
+      // sequence — the gate it serves still has to run and report.
+      if (NON_BLOCKING_GATES.has(gate.name)) {
+        continue;
+      }
       // Normally stop at the first failure: later gates depend on earlier ones.
       // For a BASELINE run we continue, so we learn each gate's pre-existing
       // status even when an earlier one is already red on the base branch.
@@ -222,7 +252,8 @@ export function baselineFailures(
 }
 
 export function allGatesPassed(results: readonly GateResult[]): boolean {
-  return results.length > 0 && results.every((result) => result.passed);
+  const blocking = results.filter((r) => !NON_BLOCKING_GATES.has(r.name));
+  return blocking.length > 0 && blocking.every((result) => result.passed);
 }
 
 /**
@@ -235,9 +266,10 @@ export function gatesEffectivelyGreen(
   results: readonly GateResult[],
   waived: ReadonlySet<string>,
 ): boolean {
+  const blocking = results.filter((r) => !NON_BLOCKING_GATES.has(r.name));
   return (
-    results.length > 0 &&
-    results.every((result) => result.passed || waived.has(result.name))
+    blocking.length > 0 &&
+    blocking.every((result) => result.passed || waived.has(result.name))
   );
 }
 
@@ -246,6 +278,7 @@ export function summarizeGates(
   waived: ReadonlySet<string> = new Set(),
 ): string {
   return results
+    .filter((result) => result.passed || !NON_BLOCKING_GATES.has(result.name))
     .map((result) => {
       if (result.passed) {
         return `✓ ${result.name}`;
