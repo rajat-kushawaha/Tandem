@@ -124,7 +124,7 @@
   </head>
   <body>
     <div class="top">
-      <div class="title">🤝 Agentic SDLC <small>watch CR-22 travel the whole pipeline</small></div>
+      <div class="title">🤝 Agentic SDLC <small>watch CR-41 travel the whole pipeline</small></div>
       <div class="controls">
         <button id="prev">‹ Step</button>
         <button id="play" class="play">▶ Play</button>
@@ -207,14 +207,14 @@
       // ---- the guided story (which nodes glow, caption + speech bubble) ----
       const STEPS = [
         { hot:['jira','poll'], edge:'jira>poll', c:C.sys, n:'1', anchor:'poll',
-          h:'CR-22 lands in BackLog', p:'“Add a Hero Section to the Homepage.” The orchestrator notices it on the next 30-second poll — no buttons, no webhooks.', ev:'poll → event',
+          h:'CR-41 lands in BackLog', p:'“Tidy up the home page search and filters.” The orchestrator notices it on the next 30-second poll — no buttons, no webhooks.', ev:'poll → event',
           who:'Orchestrator', wc:C.sys, bubble:'“Every 30 seconds I scan the CR board. New ticket in BackLog? That’s my cue to wake the BA agent.”' },
         { hot:['poll','ba'], edge:'poll>ba', c:C.ba, n:'2', anchor:'ba',
           h:'BA agent picks it up', p:'It reads the raw ticket and decides if it has enough to refine, or needs to ask.', ev:'ticket/refine.requested',
           who:'BA agent', wc:C.ba, bubble:'“Let me read this ticket… is it clear enough to build? If something’s missing, I won’t guess — I’ll ask.”' },
         { hot:['ba','slack','human1'], edge:'ba>slack', c:C.ba, n:'3', anchor:'slack',
           h:'Asks the team on Slack — and waits', p:'It reads the repos first, then batches only genuine business gaps into one thread. The workflow pauses durably for up to 3 days.', ev:'ask_clarification',
-          who:'BA agent', wc:C.ba, bubble:'“Headline text? CTA target? I checked the code first — these are real product gaps. One Slack thread, then I pause. No spinning, no spam, up to 3 days.”' },
+          who:'BA agent', wc:C.ba, bubble:'“Drop the category/author filters for good, or fold them into the expanded search? Same collapse behaviour on mobile? I checked the code first — these are real product gaps. One Slack thread, then I pause. No spinning, no spam, up to 3 days.”' },
         { hot:['human1','slack','ba'], edge:'human1>slack', c:C.human, n:'4', anchor:'human1',
           h:'A human replies → it resumes', p:'The answer wakes the paused workflow exactly where it stopped. No reply in 3 days → BLOCKED.', ev:'slack/clarification.answered',
           who:'Human', wc:C.human, bubble:'“Here’s your answer.” → The reply instantly wakes the paused workflow right where it left off.' },
@@ -222,23 +222,23 @@
           h:'Refined → handed to the dev agent', p:'The BA writes acceptance criteria to Jira and moves it to In Progress — which is the dev trigger.', ev:'→ "In Progress"',
           who:'BA agent', wc:C.ba, bubble:'“Done — clear criteria written back to Jira. I’ll move it to In Progress, and that hand-off is the dev agent’s trigger.”' },
         { hot:['dev','gates'], edge:'dev>gates', c:C.dev, n:'6', anchor:'dev',
-          h:'Dev agent codes in a throwaway sandbox', p:'A UI-only ticket, so it routes to revelio-ui only. Fresh clone on feature/CR-22, writes code + tests. A shell guard blocks anything destructive.', ev:'ticket/dev.requested',
-          who:'Dev agent', wc:C.dev, bubble:'“Hero section is UI — I’ll touch revelio-ui only, not the backend. Fresh clone, branch feature/CR-22, code + tests, safely isolated from everything real.”' },
+          h:'Dev agent codes in a throwaway sandbox', p:'A UI-only ticket, so it routes to revelio-ui only. Fresh clone on feature/CR-41, writes code + tests. A shell guard blocks anything destructive.', ev:'ticket/dev.requested',
+          who:'Dev agent', wc:C.dev, bubble:'“Header search is UI — I’ll touch revelio-ui only, not the backend. Fresh clone, branch feature/CR-41, code + tests, safely isolated from everything real.”' },
         { hot:['gates','dev'], edge:'gates>dev', c:C.sys, n:'7', anchor:'gates',
-          h:'Orchestrator gates on green', p:'The system — not the agent — re-runs build/lint/test (gradlew check / npm). Failures feed the next attempt (up to 4).', ev:'gates + checklist',
-          who:'Orchestrator', wc:C.sys, bubble:'“I don’t take the agent’s word for it. I re-run build, lint and tests myself. Failed? Here are the exact errors — try again, up to 4 times.”' },
+          h:'Orchestrator gates on green', p:'The system — not the agent — re-runs build, lint, tests, and (for the UI) a headless-browser smoke test (gradlew check / npm). Failures feed the next attempt (up to 4).', ev:'gates + checklist',
+          who:'Orchestrator', wc:C.sys, bubble:'“I don’t take the agent’s word for it. I re-run build, lint and tests myself — plus a real headless-browser smoke test on the UI to catch broken renders and dead buttons. Failed? Here are the exact errors — try again, up to 4 times.”' },
         { hot:['gates','pr'], edge:'gates>pr', c:C.sys, n:'8', anchor:'pr',
           h:'PR opens — only because it’s green', p:'Shippable = gates pass AND every criterion maps to a test. A PR opens per affected repo and the ticket moves to QA.', ev:'IN_PROGRESS → PR_OPEN · QA',
-          who:'Orchestrator', wc:C.sys, bubble:'“All green, every criterion covered by a test. Only now do I open the PR on revelio-ui and move CR-22 to QA. No green, no PR.”' },
+          who:'Orchestrator', wc:C.sys, bubble:'“All green, every criterion covered by a test. Only now do I open the PR on revelio-ui and move CR-41 to QA. No green, no PR.”' },
         { hot:['pr','rev'], edge:'pr>rev', c:C.rev, n:'9', anchor:'rev',
           h:'Reviewer reviews in CI', p:'A separate identity reviews the diff vs standards + criteria and submits a real GitHub review.', ev:'ticket/review.submitted',
           who:'Reviewer', wc:C.rev, bubble:'“I review like a senior engineer — diff vs the coding standards and the acceptance criteria. As a separate identity, since you can’t approve your own PR.”' },
         { hot:['rev','dev'], edge:'rev>dev', c:C.rev, n:'↺', anchor:'dev',
           h:'Changes requested? → back to dev', p:'A real GitHub “Request changes” (not a plain comment) loops the ticket back to the dev agent, which resumes the SAME branch with the review comments. Approved? → on to the human.', ev:'CHANGES_REQUESTED',
-          who:'Reviewer', wc:C.rev, bubble:'“Not quite there — here’s what to fix.” A formal Request-changes review loops straight back to the dev agent on the same feature/CR-22 branch — no human needed to relay it.' },
+          who:'Reviewer', wc:C.rev, bubble:'“Not quite there — here’s what to fix.” A formal Request-changes review loops straight back to the dev agent on the same feature/CR-41 branch — no human needed to relay it.' },
         { hot:['rev','human2'], edge:'rev>human2', c:C.human, n:'✓', anchor:'human2',
-          h:'Approved → human merge gate', p:'Every PR approved moves CR-22 to “In PR review”. The agents have no merge power — a person presses merge, every time. Then it’s DONE.', ev:'APPROVED → “In PR review” → DONE',
-          who:'Human', wc:C.human, bubble:'“Looks good — merging.” Approval parks CR-22 in “In PR review” for me. The agents literally cannot merge; I press the button, every single time.' },
+          h:'Approved → human merge gate', p:'Every PR approved moves CR-41 to “In PR review”. The agents have no merge power — a person presses merge, every time. Then it’s DONE.', ev:'APPROVED → “In PR review” → DONE',
+          who:'Human', wc:C.human, bubble:'“Looks good — merging.” Approval parks CR-41 in “In PR review” for me. The agents literally cannot merge; I press the button, every single time.' },
       ];
 
       const svg = document.getElementById('diagram');
