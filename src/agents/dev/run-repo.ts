@@ -73,6 +73,14 @@ export async function developRepo(
    */
   criteria: readonly string[],
   context: RepoDevContext,
+  /**
+   * Called after every agent charge with the running cumulative budget, so the
+   * caller can persist cost live (watch it climb) rather than only at the end.
+   * The callback MUST write absolutely (set = baseline + budget), never add, so
+   * an Inngest step retry that re-runs this body cannot double-count. Best-effort:
+   * a failing flush is swallowed so it never aborts the dev run.
+   */
+  onBudgetChange?: (budget: BudgetState) => Promise<void>,
 ): Promise<RepoOutcome> {
   const repoName = repo.repo;
   const log = ticketLogger(ticket.key);
@@ -91,6 +99,18 @@ export async function developRepo(
     maxWallClockMs: config.MAX_WALL_CLOCK_MS,
   };
   let budget: BudgetState = incomingBudget;
+
+  // Persist cost live after each charge, swallowing errors so a flush hiccup
+  // never aborts the dev run. The callback writes absolutely, so a step retry is
+  // safe.
+  const flush = async (): Promise<void> => {
+    if (!onBudgetChange) return;
+    try {
+      await onBudgetChange(budget);
+    } catch (error) {
+      log.warn({ repo: repoName, error }, 'live cost flush failed (ignored)');
+    }
+  };
 
   // Baseline: run the gates ONCE on the clean checkout, before the agent edits
   // anything, to learn which gates are already red on the base branch. The
@@ -148,7 +168,8 @@ export async function developRepo(
       context,
       config.MAX_TURNS_PER_RUN,
     );
-    budget = chargeRun(budget, session.usage);
+    budget = chargeRun(budget, session.usage, config.DEV_MODEL);
+    await flush();
 
     // INDEPENDENT verification — the trust boundary. The orchestrator re-runs the
     // gates itself (not trusting the agent's in-session runs) and re-checks the
@@ -167,7 +188,8 @@ export async function developRepo(
         'gates green but no checklist; attempting checklist recovery',
       );
       const recovery = await extractChecklist(ticket, sandbox, criteria);
-      budget = chargeRun(budget, recovery.usage);
+      budget = chargeRun(budget, recovery.usage, config.DEV_MODEL);
+      await flush();
       checklist = recovery.checklist;
     }
 

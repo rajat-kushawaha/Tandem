@@ -49,9 +49,25 @@ export interface AgentRunResult {
   readonly text: string;
   readonly isError: boolean;
   readonly numTurns: number;
+  /**
+   * The SDK's own billed cost for the run, summed across every model used
+   * (a Dev session may fan out to subagents on a second model). This is the
+   * source of truth for cost and already accounts for cached tokens — under
+   * subscription/OAuth auth it has been observed non-zero and accurate.
+   */
   readonly totalCostUsd: number;
+  /**
+   * NON-cached input tokens only (the API `usage.input_tokens` slice). This is
+   * what the per-ticket budget ceiling is checked against, kept consistent with
+   * its historical meaning. For a full picture of input cost, add the cache
+   * fields below.
+   */
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** Input tokens served from the prompt cache (billed at a discount). */
+  readonly cacheReadInputTokens: number;
+  /** Input tokens written to the prompt cache (billed at a premium). */
+  readonly cacheCreationInputTokens: number;
   /**
    * Names of every tool the agent invoked during THIS run, in call order.
    * Scoped to the single run (unlike durable store state, which survives
@@ -218,20 +234,66 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+/** One model's slice of a run's usage, from the SDK's `modelUsage` map. */
+interface ModelUsageEntry {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadInputTokens?: number;
+  readonly cacheCreationInputTokens?: number;
+}
+
 function reduceResult(
   message: SDKMessage,
 ): Omit<AgentRunResult, 'toolCalls' | 'transcript'> | null {
   if (message.type !== 'result') {
     return null;
   }
+  // Sum `modelUsage` across every model the run touched (a Dev session can fan
+  // out to subagents on a second model), so the token breakdown reconciles with
+  // the billed cost. `total_cost_usd` is the SDK's authoritative figure and
+  // already accounts for cached tokens — prefer it over a token-derived estimate.
+  const modelUsage = (message as { modelUsage?: Record<string, ModelUsageEntry> })
+    .modelUsage;
+  const tokens = sumModelUsage(modelUsage);
   return {
     text: message.subtype === 'success' ? message.result : '',
     isError: message.is_error,
     numTurns: message.num_turns,
     totalCostUsd: message.total_cost_usd,
-    inputTokens: Number(message.usage.input_tokens),
-    outputTokens: Number(message.usage.output_tokens),
+    inputTokens: tokens.inputTokens,
+    outputTokens: tokens.outputTokens,
+    cacheReadInputTokens: tokens.cacheReadInputTokens,
+    cacheCreationInputTokens: tokens.cacheCreationInputTokens,
   };
+}
+
+/**
+ * Sums every model entry's token counts. Falls back to the top-level `usage`
+ * only if `modelUsage` is absent (older SDK). The non-cache input/output counts
+ * here are what feed the budget ceiling, kept consistent with their historical
+ * meaning; cache counts are reporting-only.
+ */
+function sumModelUsage(
+  modelUsage: Record<string, ModelUsageEntry> | undefined,
+): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+} {
+  const total = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  };
+  for (const entry of Object.values(modelUsage ?? {})) {
+    total.inputTokens += entry.inputTokens ?? 0;
+    total.outputTokens += entry.outputTokens ?? 0;
+    total.cacheReadInputTokens += entry.cacheReadInputTokens ?? 0;
+    total.cacheCreationInputTokens += entry.cacheCreationInputTokens ?? 0;
+  }
+  return total;
 }
 
 export type { HookCallbackMatcher, McpServerConfig };

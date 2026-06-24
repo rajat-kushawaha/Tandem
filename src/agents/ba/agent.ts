@@ -6,6 +6,37 @@ import { atlassianMcpServer } from '../../integrations/jira/mcp.js';
 import { buildAskClarificationServer } from './ask-clarification-tool.js';
 import { BA_SYSTEM_PROMPT, analyzePrompt, refinePrompt } from './prompts.js';
 import { parseRefinedTicket, type RefinedTicket } from './refined-ticket.js';
+import { estimateCostUsd } from '../../orchestrator/budget.js';
+import type { AgentRunResult } from '../../shared/claude.js';
+
+/** Per-run usage extracted from an agent result, for cost accounting. */
+export interface AgentRunUsage {
+  readonly model: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadInputTokens: number;
+  readonly cacheCreationInputTokens: number;
+  readonly costUsd: number;
+}
+
+/**
+ * Builds usage from a run result. The SDK's `totalCostUsd` is the source of
+ * truth (it accounts for cached tokens); the token-based estimate is only a
+ * fallback for the rare case the SDK reports 0.
+ */
+function usageOf(model: string, result: AgentRunResult): AgentRunUsage {
+  return {
+    model,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+    cacheReadInputTokens: result.cacheReadInputTokens,
+    cacheCreationInputTokens: result.cacheCreationInputTokens,
+    costUsd:
+      result.totalCostUsd > 0
+        ? result.totalCostUsd
+        : estimateCostUsd(model, result.inputTokens, result.outputTokens),
+  };
+}
 
 /**
  * The BA agent has Jira (read, via the Atlassian MCP), Slack (the
@@ -26,6 +57,14 @@ export interface AnalysisResult {
   readonly askedClarification: boolean;
   /** A finished refinement, when the agent had enough to proceed immediately. */
   readonly draft: RefinedTicket | null;
+  /** Tokens, model, and cost of this analysis run. */
+  readonly usage: AgentRunUsage;
+}
+
+export interface RefineResult {
+  readonly refined: RefinedTicket;
+  /** Tokens, model, and cost of this refine run. */
+  readonly usage: AgentRunUsage;
 }
 
 function baMcpServers(
@@ -77,6 +116,7 @@ export async function analyzeTicket(
       ? null
       : (parseRefinedTicket(result.transcript) ??
         parseRefinedTicket(result.text)),
+    usage: usageOf(config.BA_MODEL, result),
   };
 }
 
@@ -92,7 +132,7 @@ export async function refineTicket(
   /** Directory containing one read-only repo checkout per configured repo. */
   checkoutRoot: string,
   repoDirs: readonly string[],
-): Promise<RefinedTicket> {
+): Promise<RefineResult> {
   const result = await runAgent({
     role: 'ba',
     model: config.BA_MODEL,
@@ -111,5 +151,5 @@ export async function refineTicket(
       `BA agent did not produce a valid refined ticket for ${ticket.key}.`,
     );
   }
-  return refined;
+  return { refined, usage: usageOf(config.BA_MODEL, result) };
 }

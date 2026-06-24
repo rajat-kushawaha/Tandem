@@ -3,7 +3,12 @@ import { runStore } from '../store.js';
 import { applyEvent, loadOrCreate } from '../run-store.js';
 import { canTransition } from '../state-machine.js';
 import { agentLogger } from '../../shared/logger.js';
-import type { AffectedRepo, Ticket } from '../../shared/types.js';
+import {
+  totalCostUsd,
+  type AffectedRepo,
+  type AgentCost,
+  type Ticket,
+} from '../../shared/types.js';
 import { config } from '../../shared/config.js';
 import {
   readTicket,
@@ -37,7 +42,8 @@ import {
   preparePlanningCheckout,
   ticketSandboxRoot,
 } from '../../agents/dev/sandbox.js';
-import { startBudget } from '../../orchestrator/budget.js';
+import { startBudget, type BudgetState } from '../../orchestrator/budget.js';
+import { addAgentCost, costComment } from '../cost.js';
 
 /**
  * Dev workflow. Selects the affected repos by keyword, then develops each one
@@ -89,6 +95,15 @@ export const devWorkflow = inngest.createFunction(
       // One budget for the whole ticket, carried from repo to repo so the
       // spend ceiling is genuinely per-ticket rather than reset per repo.
       let budget = startBudget();
+      // Dev cost already on the record from PRIOR invocations (reworks). Captured
+      // ONCE, durably, before the loop. Every dev-cost write this invocation is
+      // ABSOLUTE (set = baseline + budget), so a step retry that re-runs the body
+      // recomputes the same value instead of double-adding. Re-reading the record
+      // inside the loop would reintroduce the double-count, so we don't.
+      const devBaseline = await step.run('capture-dev-baseline', async () => {
+        const record = await loadOrCreate(runStore, ticketKey);
+        return record.dev;
+      });
       const outcomes: RepoOutcome[] = [];
       // Diffs of repos already handled for this ticket (shipped earlier or
       // developed just now), fed into each later repo's session so cross-repo
@@ -144,7 +159,9 @@ export const devWorkflow = inngest.createFunction(
             })),
         };
         const outcome = await step.run(`develop-${repo.key}`, () =>
-          developRepo(ticket, repo, budget, repoCriteria, context),
+          developRepo(ticket, repo, budget, repoCriteria, context, (live) =>
+            setDevCost(ticketKey, devBaseline, live),
+          ),
         );
         budget = outcome.budget;
         outcomes.push(outcome);
@@ -160,6 +177,10 @@ export const devWorkflow = inngest.createFunction(
         await step.run('record-partial-prs', () =>
           recordShippedRepos(ticketKey, outcomes),
         );
+        await step.run('record-dev-cost', () =>
+          setDevCost(ticketKey, devBaseline, budget),
+        );
+        await step.run('post-cost-comment', () => postCostComment(ticketKey));
         await step.run('block-on-failure', () =>
           escalate(
             ticketKey,
@@ -179,6 +200,10 @@ export const devWorkflow = inngest.createFunction(
       await step.run('record-prs', () =>
         recordPullRequests(ticketKey, outcomes),
       );
+      await step.run('record-dev-cost', () =>
+        setDevCost(ticketKey, devBaseline, budget),
+      );
+      await step.run('post-cost-comment', () => postCostComment(ticketKey));
       // Success: the feature branch is pushed, so the local checkout is
       // disposable. Cleaning up only on success keeps SANDBOX_ROOT from growing
       // while preserving failed checkouts for debugging.
@@ -371,6 +396,28 @@ async function recordPullRequests(
     `Dev agent opened PR(s):\n${outcomes.map((o) => `- ${o.prUrl}`).join('\n')}`,
   );
   await ensureStatus(ticketKey, config.JIRA_STATUS_IN_REVIEW);
+}
+
+async function postCostComment(ticketKey: string): Promise<void> {
+  const record = await loadOrCreate(runStore, ticketKey);
+  if (totalCostUsd(record) <= 0) return;
+  await addComment(ticketKey, costComment(record));
+}
+
+/**
+ * Sets the record's dev cost to the ABSOLUTE total (prior-invocation `baseline`
+ * plus this run's `budget`); see {@link addAgentCost} for why absolute, not
+ * additive. Called live during the run and at the final flush — both idempotent.
+ */
+async function setDevCost(
+  ticketKey: string,
+  baseline: AgentCost,
+  budget: BudgetState,
+): Promise<void> {
+  const record = await loadOrCreate(runStore, ticketKey);
+  record.dev = addAgentCost(baseline, budget);
+  record.updatedAt = new Date().toISOString();
+  await runStore.save(record);
 }
 
 async function escalate(

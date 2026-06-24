@@ -43,6 +43,43 @@ export interface AffectedRepo {
 }
 
 /**
+ * AI usage accumulated for one agent role over a ticket: token counts, the
+ * model that produced them, and the USD cost (SDK-reported when available,
+ * otherwise estimated from tokens). All fields accumulate across retries and
+ * rework runs.
+ */
+export interface AgentCost {
+  /** The model used for this agent's runs (last one seen, if it ever changed). */
+  model: string;
+  /** Non-cached input tokens. */
+  inputTokens: number;
+  outputTokens: number;
+  /** Input tokens served from the prompt cache (billed at a discount). */
+  cacheReadInputTokens: number;
+  /** Input tokens written to the prompt cache (billed at a premium). */
+  cacheCreationInputTokens: number;
+  costUsd: number;
+}
+
+export function emptyAgentCost(): AgentCost {
+  return {
+    model: '',
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    costUsd: 0,
+  };
+}
+
+/** Total input tokens of every kind (non-cache + cache read + cache creation). */
+export function totalInputTokens(cost: AgentCost): number {
+  return (
+    cost.inputTokens + cost.cacheReadInputTokens + cost.cacheCreationInputTokens
+  );
+}
+
+/**
  * Durable per-ticket record persisted by the orchestrator. It is the single
  * source of truth linking a Jira key to its Slack thread and its PRs.
  */
@@ -53,6 +90,15 @@ export interface RunRecord {
   repos: AffectedRepo[];
   blockedReason: string | null;
   updatedAt: string;
+  /** AI usage by the BA agent for this ticket (zeroed until BA runs). */
+  ba: AgentCost;
+  /** AI usage by the Dev agent across all attempts for this ticket. */
+  dev: AgentCost;
+}
+
+/** Total USD cost across all tracked agents. Reviewer runs in CI, not tracked here. */
+export function totalCostUsd(record: RunRecord): number {
+  return record.ba.costUsd + record.dev.costUsd;
 }
 
 export function createRunRecord(ticketKey: string): RunRecord {
@@ -63,5 +109,7 @@ export function createRunRecord(ticketKey: string): RunRecord {
     repos: [],
     blockedReason: null,
     updatedAt: new Date().toISOString(),
+    ba: emptyAgentCost(),
+    dev: emptyAgentCost(),
   };
 }

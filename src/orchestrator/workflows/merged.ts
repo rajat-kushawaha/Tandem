@@ -5,6 +5,8 @@ import { canTransition } from '../state-machine.js';
 import { config } from '../../shared/config.js';
 import { addComment, ensureStatus } from '../../integrations/jira/client.js';
 import { agentLogger } from '../../shared/logger.js';
+import { totalCostUsd } from '../../shared/types.js';
+import { costComment } from '../cost.js';
 
 /**
  * Closes a ticket's lifecycle once a human has merged every one of its PRs:
@@ -38,9 +40,12 @@ export const mergedWorkflow = inngest.createFunction(
     }
 
     await step.run('close-out-jira', async () => {
+      const record = await loadOrCreate(runStore, ticketKey);
+      const costLine =
+        totalCostUsd(record) > 0 ? `\n\n${costComment(record)}` : '';
       await addComment(
         ticketKey,
-        'All PRs for this ticket have been merged. The work is done.',
+        `All PRs for this ticket have been merged. The work is done.${costLine}`,
       );
       if (config.JIRA_STATUS_DONE) {
         await ensureStatus(ticketKey, config.JIRA_STATUS_DONE);

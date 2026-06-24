@@ -3,7 +3,11 @@ import { runStore } from '../store.js';
 import { applyEvent, loadOrCreate } from '../run-store.js';
 import { canTransition } from '../state-machine.js';
 import { agentLogger } from '../../shared/logger.js';
-import { analyzeTicket, refineTicket } from '../../agents/ba/agent.js';
+import {
+  analyzeTicket,
+  refineTicket,
+  type AgentRunUsage,
+} from '../../agents/ba/agent.js';
 import {
   renderJiraDescription,
   type RefinedTicket,
@@ -74,6 +78,10 @@ export const baRefinementWorkflow = inngest.createFunction(
       analyzeTicket(ticket, runStore, checkoutRoot, repoDirs),
     );
 
+    await step.run('record-ba-analysis-cost', () =>
+      accumulateBaCost(ticketKey, analysis.usage),
+    );
+
     let refined: RefinedTicket | null = analysis.draft;
 
     if (analysis.askedClarification) {
@@ -95,7 +103,7 @@ export const baRefinementWorkflow = inngest.createFunction(
       }
 
       log.info('clarification received; refining ticket');
-      refined = await step.run('refine-with-answer', async () => {
+      const refineResult = await step.run('refine-with-answer', async () => {
         // The clarification pause can outlast the checkout (another ticket's
         // dev run may have re-cloned or disposed the sandbox); re-prepare so
         // the refine session always has the code.
@@ -116,6 +124,11 @@ export const baRefinementWorkflow = inngest.createFunction(
           repoDirs,
         );
       });
+
+      await step.run('record-ba-refine-cost', () =>
+        accumulateBaCost(ticketKey, refineResult.usage),
+      );
+      refined = refineResult.refined;
     }
 
     if (!refined) {
@@ -175,4 +188,24 @@ async function blockTicket(ticketKey: string, reason: string): Promise<void> {
     await applyEvent(runStore, record, 'BLOCK', { blockedReason: reason });
   }
   await addComment(ticketKey, `:warning: BA refinement blocked: ${reason}`);
+}
+
+/** Adds a BA run's usage to the persisted run record (additive across retries). */
+async function accumulateBaCost(
+  ticketKey: string,
+  usage: AgentRunUsage,
+): Promise<void> {
+  const record = await loadOrCreate(runStore, ticketKey);
+  record.ba = {
+    model: usage.model || record.ba.model,
+    inputTokens: record.ba.inputTokens + usage.inputTokens,
+    outputTokens: record.ba.outputTokens + usage.outputTokens,
+    cacheReadInputTokens:
+      record.ba.cacheReadInputTokens + usage.cacheReadInputTokens,
+    cacheCreationInputTokens:
+      record.ba.cacheCreationInputTokens + usage.cacheCreationInputTokens,
+    costUsd: record.ba.costUsd + usage.costUsd,
+  };
+  record.updatedAt = new Date().toISOString();
+  await runStore.save(record);
 }

@@ -1,6 +1,10 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { createRunRecord, type RunRecord } from '../shared/types.js';
+import {
+  createRunRecord,
+  emptyAgentCost,
+  type RunRecord,
+} from '../shared/types.js';
 import { transition, type TicketEvent } from './state-machine.js';
 
 /**
@@ -84,7 +88,14 @@ export class FileRunStore implements RunStore {
     try {
       const parsed = JSON.parse(raw) as RunRecord[];
       for (const record of parsed) {
-        this.records.set(record.ticketKey, record);
+        // Fill in cost fields that may be absent or partial in records written
+        // before cost tracking (or before cache tokens were added), so the store
+        // never serves a record with undefined fields.
+        this.records.set(record.ticketKey, {
+          ...record,
+          ba: { ...emptyAgentCost(), ...record.ba },
+          dev: { ...emptyAgentCost(), ...record.dev },
+        });
       }
     } catch {
       // A corrupt file must not crash boot. Start empty; the next save rewrites.
