@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateAttempt } from '../src/agents/dev/evaluate.js';
+import {
+  evaluateAttempt,
+  shouldEscalateNoDiff,
+} from '../src/agents/dev/evaluate.js';
 import {
   checklistSchema,
   type Checklist,
@@ -103,5 +106,23 @@ describe('evaluateAttempt', () => {
       true,
     );
     expect(verdict.preExisting).toEqual(['lint']);
+  });
+});
+
+describe('shouldEscalateNoDiff', () => {
+  it('escalates a first run that committed nothing (already-satisfied finding)', () => {
+    expect(shouldEscalateNoDiff(false, true)).toBe(true);
+  });
+
+  it('does not escalate when the agent committed a change', () => {
+    expect(shouldEscalateNoDiff(true, true)).toBe(false);
+  });
+
+  it('does not escalate a no-diff rework (handled by re-requesting review)', () => {
+    expect(shouldEscalateNoDiff(false, false)).toBe(false);
+  });
+
+  it('does not escalate a rework that committed changes', () => {
+    expect(shouldEscalateNoDiff(true, false)).toBe(false);
   });
 });

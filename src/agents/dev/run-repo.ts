@@ -13,7 +13,7 @@ import {
 } from '../../orchestrator/budget.js';
 import { extractChecklist, runDevSession } from './agent.js';
 import type { Checklist } from './checklist.js';
-import { evaluateAttempt } from './evaluate.js';
+import { evaluateAttempt, shouldEscalateNoDiff } from './evaluate.js';
 import {
   baselineFailures,
   gatesEffectivelyGreen,
@@ -191,6 +191,33 @@ export async function developRepo(
       sandbox,
       `${ticket.key}: ${ticket.summary}`,
     );
+
+    // First run that produced no diff: the agent changed nothing, yet the
+    // attempt was judged shippable — which happens when the criteria are already
+    // satisfied by code (and tests) already on the base branch. Opening a PR
+    // here would fail ("No commits between main and feature/<key>"), and even if
+    // it didn't, shipping an empty PR off pre-existing code is wrong. This is not
+    // success and not a normal failure: it's a finding for a human. Escalate it
+    // truthfully via the problems path (no PR), the same way exhausted attempts
+    // do. (A rework with no diff is a different, legitimate case — handled below
+    // by re-requesting review on the existing PR.)
+    if (shouldEscalateNoDiff(committed, context.reviewFeedback.length === 0)) {
+      log.warn(
+        { repo: repoName, attempt },
+        'first run produced no diff; escalating as already-satisfied finding',
+      );
+      return {
+        repo: repoName,
+        shippable: false,
+        prUrl: null,
+        problems: [
+          `The agent produced no code changes for "${repoName}". The acceptance criteria appear to be already satisfied by existing code on ${config.GITHUB_BASE_BRANCH}, but the feature may not be reachable or wired up as the ticket intends (e.g. an existing page with no navigation to it). Human confirmation needed: either close the ticket as already-implemented, or clarify what is actually missing.`,
+        ],
+        diff: null,
+        budget,
+      };
+    }
+
     const pr = await openPullRequest({
       owner: repo.owner,
       repo: repo.repo,
